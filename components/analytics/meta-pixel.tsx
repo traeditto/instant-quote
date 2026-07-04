@@ -55,7 +55,28 @@ export function MetaPixel() {
     /* eslint-enable */
 
     window.fbq!("init", PIXEL_ID)
-    window.fbq!("track", "PageView")
+
+    // Shared event ID lets Meta dedupe the browser PageView against the
+    // server-side CAPI PageView fired from /api/track/pageview.
+    const eventId =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    window.fbq!("track", "PageView", {}, { eventID: eventId })
+
+    // Fire the matching server-side PageView. A short delay lets the pixel
+    // write its _fbp/_fbc cookies first so the server can include them.
+    const t = setTimeout(() => {
+      fetch("/api/track/pageview", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ eventId, eventSourceUrl: window.location.href }),
+        keepalive: true,
+      }).catch(() => {})
+    }, 800)
+
+    return () => clearTimeout(t)
   }, [])
 
   if (!PIXEL_ID) return null
