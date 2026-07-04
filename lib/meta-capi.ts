@@ -24,7 +24,9 @@ function hashPhone(phone?: string | null): string | undefined {
   return crypto.createHash("sha256").update(digits).digest("hex")
 }
 
-export type CapiLead = {
+export type CapiEvent = {
+  /** Meta standard event name, e.g. "Lead" or "PageView". */
+  eventName: string
   eventId: string
   eventSourceUrl?: string
   name?: string | null
@@ -37,30 +39,33 @@ export type CapiLead = {
   fbc?: string | null
 }
 
+// Backwards-compatible alias for the Lead payload shape.
+export type CapiLead = Omit<CapiEvent, "eventName">
+
 /**
- * Sends a server-side "Lead" event to the Meta Conversions API.
+ * Sends a server-side event to the Meta Conversions API.
  * Best-effort: returns silently (logging) if not configured or on error,
- * so it never blocks or breaks lead capture.
+ * so it never blocks or breaks the request.
  */
-export async function sendMetaLead(lead: CapiLead): Promise<void> {
+export async function sendMetaEvent(event: CapiEvent): Promise<void> {
   if (!PIXEL_ID || !ACCESS_TOKEN) {
-    console.log("[v0] Meta CAPI not configured; skipping Lead event.")
+    console.log(`[v0] Meta CAPI not configured; skipping ${event.eventName} event.`)
     return
   }
 
-  const first = lead.name?.trim().split(/\s+/)[0]
-  const last = lead.name?.trim().split(/\s+/).slice(1).join(" ")
+  const first = event.name?.trim().split(/\s+/)[0]
+  const last = event.name?.trim().split(/\s+/).slice(1).join(" ")
 
   const userData: Record<string, unknown> = {
-    em: hash(lead.email),
-    ph: hashPhone(lead.phone),
+    em: hash(event.email),
+    ph: hashPhone(event.phone),
     fn: hash(first),
     ln: hash(last || undefined),
-    ct: hash(lead.city),
-    client_ip_address: lead.clientIp || undefined,
-    client_user_agent: lead.userAgent || undefined,
-    fbp: lead.fbp || undefined,
-    fbc: lead.fbc || undefined,
+    ct: hash(event.city),
+    client_ip_address: event.clientIp || undefined,
+    client_user_agent: event.userAgent || undefined,
+    fbp: event.fbp || undefined,
+    fbc: event.fbc || undefined,
   }
   // Strip undefined keys.
   Object.keys(userData).forEach((k) => userData[k] === undefined && delete userData[k])
@@ -68,10 +73,10 @@ export async function sendMetaLead(lead: CapiLead): Promise<void> {
   const payload: Record<string, unknown> = {
     data: [
       {
-        event_name: "Lead",
+        event_name: event.eventName,
         event_time: Math.floor(Date.now() / 1000),
-        event_id: lead.eventId,
-        event_source_url: lead.eventSourceUrl,
+        event_id: event.eventId,
+        event_source_url: event.eventSourceUrl,
         action_source: "website",
         user_data: userData,
       },
@@ -90,11 +95,16 @@ export async function sendMetaLead(lead: CapiLead): Promise<void> {
     )
     const text = await res.text()
     if (!res.ok) {
-      console.log("[v0] Meta CAPI error:", res.status, text)
+      console.log(`[v0] Meta CAPI error (${event.eventName}):`, res.status, text)
     } else {
-      console.log("[v0] Meta CAPI Lead sent OK:", res.status, text)
+      console.log(`[v0] Meta CAPI ${event.eventName} sent OK:`, res.status, text)
     }
   } catch (err) {
-    console.log("[v0] Meta CAPI request failed:", err)
+    console.log(`[v0] Meta CAPI request failed (${event.eventName}):`, err)
   }
+}
+
+/** Sends a server-side "Lead" event to the Meta Conversions API. */
+export async function sendMetaLead(lead: CapiLead): Promise<void> {
+  return sendMetaEvent({ ...lead, eventName: "Lead" })
 }
